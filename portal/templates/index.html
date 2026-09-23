@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CSPACE · จัดการผู้เรียน</title>
+  <meta name="description" content="จัดการรายชื่อผู้เรียนและติดตามการยืนยันตัวตนใน Discord">
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/app.css">
+  {% if user %}<meta name="csrf-token" content="{{ user.csrf }}"><script src="/static/app.js" defer></script>{% endif %}
+</head>
+<body>
+{% if not user %}
+<main class="login-layout">
+  <section class="login-brand"><a class="brand" href="/">c<span>space</span><small>ADMIN</small></a><div><p class="eyebrow">LEARNING COMMUNITY</p><h1>ทุกคนในคลาส<br>อยู่ในที่เดียวกัน</h1><p>จัดการรายชื่อและติดตามสิทธิ์เข้าเรียนใน Discord</p></div><span class="brand-footer">CSPACE / LEARNER MANAGEMENT</span></section>
+  <section class="login-panel"><div class="login-box"><span class="section-tag">สำหรับผู้ดูแล</span><h2>เข้าสู่ระบบจัดการผู้เรียน</h2><p>ใช้บัญชี Discord ที่ได้รับสิทธิ์เพื่อดูรายชื่อ<br>และนำเข้าข้อมูลผู้เรียน</p>
+  {% if configured %}<a class="button primary login-button" href="/auth/login">เข้าสู่ระบบด้วย Discord <span aria-hidden="true">↗</span></a>{% else %}<div class="notice">ยังไม่ได้ตั้งค่าการเข้าสู่ระบบ Discord<br>กรุณาตั้งค่าบัญชีแอปตามคู่มือติดตั้งก่อนใช้งาน</div>{% endif %}
+  <p class="login-note">เฉพาะบัญชีแอดมินที่กำหนดไว้เท่านั้นที่เข้าถึงข้อมูลได้</p></div></section>
+</main>
+{% else %}
+<div class="app-layout">
+  <aside class="sidebar">
+    <a class="brand" href="/">c<span>space</span><small>ADMIN</small></a>
+    <p class="nav-label">พื้นที่จัดการ</p>
+    <nav aria-label="เมนูหลัก"><a class="nav-item active" href="/" aria-current="page"><span aria-hidden="true">▦</span> รายชื่อผู้เรียน</a><button class="nav-item" data-open-import><span aria-hidden="true">↑</span> นำเข้ารายชื่อ</button><a class="nav-item" href="/api/template.csv"><span aria-hidden="true">↓</span> ไฟล์ตัวอย่าง</a></nav>
+    <div class="sidebar-help"><span class="mini-label">DISCORD COMMUNITY</span><p>หนึ่งรายชื่อ<br>หนึ่งบัญชีผู้เรียน</p><span>ติดตามสถานะการยืนยันตัวตน<br>จากบอตในเซิร์ฟเวอร์</span></div>
+    <div class="profile"><div class="avatar">{{ user.display_name[:1]|upper }}</div><div><strong>{{ user.display_name }}</strong><small>ผู้ดูแลระบบ</small></div><button id="logout" aria-label="ออกจากระบบ" title="ออกจากระบบ">↪</button></div>
+  </aside>
+  <main class="workspace">
+    <header class="topbar"><span>CSPACE <span class="crumb">/</span> ผู้เรียน</span><span id="bot-status" class="connection">กำลังตรวจสอบบอต…</span></header>
+    {% if demo %}<div class="demo-banner">โหมดตัวอย่าง — ใช้ข้อมูลทดสอบ ไม่ได้เชื่อมต่อ Discord จริง</div>{% endif %}
+    <div class="page-content">
+      <div class="page-title"><div><p class="eyebrow">LEARNER DIRECTORY</p><h1>รายชื่อผู้เรียน</h1><p class="muted">นำเข้ารายชื่อและติดตามการยืนยันตัวตนในแต่ละหลักสูตร</p></div><button class="button primary" data-open-import><span aria-hidden="true">＋</span> นำเข้ารายชื่อ</button></div>
+      <section class="stats" aria-label="สรุปสถานะ"><article><span>สิทธิ์เข้าเรียนทั้งหมด</span><strong id="stat-total">—</strong><small id="people-count">กำลังโหลดข้อมูล</small></article><article><span><i class="status-mark verified"></i> ยืนยันแล้ว</span><strong id="stat-verified">—</strong><small>ผูกกับบัญชี Discord แล้ว</small></article><article><span><i class="status-mark pending"></i> รอยืนยัน</span><strong id="stat-pending">—</strong><small>พร้อมรับรหัสเพื่อเข้าเรียน</small></article><article><span><i class="status-mark error"></i> ต้องตรวจสอบ</span><strong id="stat-error">—</strong><small>แจกยศไม่สำเร็จหรือออกจากเซิร์ฟเวอร์</small></article></section>
+      <section class="roster-panel" aria-label="ตารางรายชื่อ">
+        <div class="panel-heading"><div><h2>ผู้เรียนทั้งหมด <span id="result-count" class="count">0</span></h2><p id="updated-label" class="small muted">สถานะการเข้าถึงหลักสูตร</p></div><a class="button secondary" href="/api/export.csv" id="export"><span aria-hidden="true">↓</span> ดาวน์โหลดรหัส</a></div>
+        <div class="filters"><label class="search"><span aria-hidden="true">⌕</span><input id="search" type="search" placeholder="ค้นหาชื่อหรือรหัสผู้เรียน" aria-label="ค้นหาชื่อหรือรหัสผู้เรียน"></label><label><span class="sr-only">หลักสูตร</span><select id="course"><option value="">ทุกหลักสูตร</option></select></label><label><span class="sr-only">สถานะ</span><select id="status"><option value="">ทุกสถานะ</option><option value="pending">รอยืนยัน</option><option value="processing">กำลังยืนยัน</option><option value="verified">ยืนยันแล้ว</option><option value="error">แจกยศไม่สำเร็จ</option><option value="departed">ไม่มีสิทธิ์ใน Discord แล้ว</option></select></label></div>
+        <div id="load-error" class="error-banner" role="alert" hidden></div>
+        <div class="table-wrap"><table><thead><tr><th>ผู้เรียน</th><th>หลักสูตร</th><th>สถานะ</th><th>บัญชี Discord</th><th>ยืนยันเมื่อ</th></tr></thead><tbody id="roster-body"><tr><td colspan="5" class="empty-state">กำลังโหลดรายชื่อ…</td></tr></tbody></table></div>
+        <footer class="table-footer"><span id="range">—</span><div class="pagination"><button class="button compact" id="previous" disabled aria-label="หน้าก่อนหน้า">←</button><span id="page-number">1</span><button class="button compact" id="next" disabled aria-label="หน้าถัดไป">→</button></div></footer>
+      </section>
+      <div class="page-note"><span aria-hidden="true">ⓘ</span><p>รหัสยืนยันเป็นสิทธิ์รายบุคคล ดาวน์โหลดแล้วส่งให้ผู้เรียนแต่ละคนโดยตรง<br><span class="muted">ยศใน Discord ต้องได้รับอนุญาตให้เข้าห้องเรียนที่เกี่ยวข้องด้วย</span></p></div>
+    </div>
+  </main>
+</div>
+<dialog id="import-dialog" aria-labelledby="import-title">
+  <div class="dialog-heading"><div><p class="eyebrow">IMPORT LEARNERS</p><h2 id="import-title">นำเข้ารายชื่อผู้เรียน</h2></div><button class="icon-button" id="close-import" aria-label="ปิดหน้าต่าง">×</button></div>
+  <div class="dialog-body"><p class="muted">เลือกไฟล์ แล้วตรวจรายการก่อนบันทึก รายชื่อเดิมจะไม่ถูกลบ</p>
+    <label class="upload-zone" id="dropzone"><input id="file" type="file" accept=".xlsx,.csv"><span class="upload-symbol" aria-hidden="true">↑</span><strong>เลือกไฟล์ Excel หรือ CSV</strong><span>หรือลากไฟล์มาวางที่นี่</span><small>.xlsx / .csv · ไม่เกิน 2 MB · สูงสุด 5,000 แถว</small></label>
+    <p class="template-hint">คอลัมน์ที่ต้องมี: รหัสผู้เรียน, ชื่อ-นามสกุล, หลักสูตร <a href="/api/template.csv">ดาวน์โหลดไฟล์ตัวอย่าง ↗</a></p>
+    <div id="import-progress" class="notice" role="status" hidden></div><div id="import-error" class="error-banner" role="alert" hidden></div>
+    <section id="import-preview" hidden><div class="preview-summary"><strong id="file-name"></strong><span id="import-summary"></span></div><div class="table-wrap preview-table"><table><thead><tr><th>แถว</th><th>รหัสผู้เรียน</th><th>ชื่อ-นามสกุล</th><th>หลักสูตร</th></tr></thead><tbody id="preview-body"></tbody></table></div><p class="small muted">แสดงตัวอย่างสูงสุด 100 แถว · รายการซ้ำเดิมจะถูกข้ามโดยไม่เปลี่ยนสิทธิ์</p></section>
+  </div><div class="dialog-footer"><button class="button secondary" id="cancel-import">ยกเลิก</button><button class="button primary" id="commit-import" disabled>ยืนยันนำเข้า</button></div>
+</dialog>
+<div id="toast" class="toast" role="status" hidden></div>
+{% endif %}
+</body></html>

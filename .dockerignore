@@ -1,0 +1,12 @@
+*
+!requirements.txt
+!main.py
+!serve.py
+!cogs/
+!cogs/**
+!utils/
+!utils/**
+!portal/
+!portal/**
+**/__pycache__/
+**/*.pyc
