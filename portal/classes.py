@@ -98,22 +98,15 @@ class ClassRegistry(Registry):
             return {**dict(row), "role_id": None}
 
     def reserve(self, code, discord_id, role_id, full_name=""):
+        full_name = " ".join(full_name.split())
+        if not full_name or len(full_name) > 100:
+            raise RegistryError("กรอกชื่อ–นามสกุล ความยาวไม่เกิน 100 ตัวอักษร")
         with self.transaction() as connection:
             # All admissions to a class serialize on this row in PostgreSQL.
             course = connection.execute(select(classes).where(classes.c.access_code == code)
                 .with_for_update()).mappings().first()
             if not course:
                 raise RegistryError("ไม่พบโค้ดคลาส")
-            allowed = connection.execute(select(allowed_learners).where(allowed_learners.c.class_id == course["id"],
-                allowed_learners.c.normalized_name == normalize_name(full_name))).mappings().first()
-            if not allowed:
-                raise RegistryError("ชื่อไม่ตรงกับรายชื่อของคลาส กรุณากรอกชื่อ–นามสกุลตามที่ลงทะเบียน หรือติดต่อผู้ดูแล")
-            if allowed["discord_id"] and allowed["discord_id"] != discord_id:
-                raise RegistryError("รายชื่อนี้ผูกกับบัญชี Discord อื่นแล้ว กรุณาติดต่อผู้ดูแล")
-            bound = connection.execute(select(allowed_learners.c.id).where(allowed_learners.c.class_id == course["id"],
-                allowed_learners.c.discord_id == discord_id, allowed_learners.c.id != allowed["id"])).first()
-            if bound:
-                raise RegistryError("บัญชีนี้ผูกกับชื่ออื่นในคลาสแล้ว กรุณาติดต่อผู้ดูแล")
             member = connection.execute(select(members).where(members.c.class_id == course["id"],
                 members.c.discord_id == discord_id)).mappings().first()
             if member and member["status"] == "verified":
@@ -124,8 +117,7 @@ class ClassRegistry(Registry):
                 members.c.class_id == course["id"], members.c.status.in_(["verified", "processing"])))
             if occupied >= course["capacity"]:
                 raise RegistryError("คลาสนี้ครบจำนวนแล้ว กรุณาติดต่อผู้ดูแล")
-            connection.execute(update(allowed_learners).where(allowed_learners.c.id == allowed["id"]).values(discord_id=discord_id))
-            claim = dict(class_id=course["id"], discord_id=discord_id, full_name=allowed["full_name"],
+            claim = dict(class_id=course["id"], discord_id=discord_id, full_name=full_name,
                          role_id=role_id, status="processing", claim_id=str(uuid.uuid4()),
                          last_error=None, verified_at=None, updated_at=int(time.time()))
             entry_id = member["id"] if member else str(uuid.uuid4())
@@ -156,7 +148,7 @@ class ClassRegistry(Registry):
             connection.execute(update(members).where(*conditions).values(status="departed", updated_at=int(time.time())))
 
     def stage_import(self, owner, filename, rows, errors):
-        # Each roster provides the allowed names and a default capacity for new classes.
+        # Optional imports retain reference names and set capacity for new classes.
         groups = {}
         errors = list(errors)
         for row in rows:

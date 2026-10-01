@@ -59,7 +59,7 @@ class VerifyModal(discord.ui.Modal, title="🛡️ ยืนยันตัว�
             if os.getenv("VERIFICATION_MODE") == "roster":
                 self.remove_item(self.real_name)
             else:
-                self.real_name.label = "ชื่อ–นามสกุลตามรายชื่อที่ลงทะเบียน"
+                self.real_name.label = "ชื่อ–นามสกุลของคุณ (บันทึกให้ผู้ดูแล)"
                 self.real_name.max_length = 100
             self.code.label = "โค้ดคลาส" if os.getenv("VERIFICATION_MODE") == "classes" else "รหัสยืนยันรายบุคคล"
 
@@ -541,10 +541,10 @@ class VerificationCog(commands.Cog, name="Verification"):
         embed.set_footer(text="ระบบยืนยันตัวตน 3 ชั้น | Manager Bot")
 
         if os.getenv("VERIFICATION_MODE") in {"classes", "roster"}:
-            embed.description = ("กดปุ่มด้านล่างแล้วกรอก **ชื่อ–นามสกุลตามที่ลงทะเบียน** และ **โค้ดคลาส** เพื่อรับยศ\n"
+            embed.description = ("กดปุ่มด้านล่างแล้วกรอก **ชื่อ–นามสกุลของคุณ** และ **โค้ดคลาส** เพื่อรับยศ\n"
                 "ทุกคนในคลาสใช้โค้ดเดียวกัน รับได้ตามจำนวนที่กำหนด บัญชีเดิมกรอกซ้ำไม่ใช้โควต้าเพิ่ม\n"
-                "ชื่อจะต้องตรงกับลิสต์ของคลาส และผูกกับบัญชี Discord ได้เพียงบัญชีเดียว\n"
-                "ระบบเก็บชื่อและ ID Discord ให้ผู้ดูแลตรวจสิทธิ์") if os.getenv("VERIFICATION_MODE") == "classes" else "กดปุ่มแล้วกรอกรหัสยืนยันที่ได้รับจากผู้ดูแล"
+                "กรอกชื่อได้เอง ไม่ต้องมีรายชื่อล่วงหน้า\n"
+                "ระบบเก็บชื่อที่กรอกและ ID Discord ให้ผู้ดูแลดูย้อนหลัง") if os.getenv("VERIFICATION_MODE") == "classes" else "กดปุ่มแล้วกรอกรหัสยืนยันที่ได้รับจากผู้ดูแล"
             embed.set_footer(text="ยืนยันสิทธิ์เข้าเรียน | CSPACE")
 
         view = VerificationButtonView(self)

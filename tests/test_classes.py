@@ -10,7 +10,7 @@ import discord
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 
-from portal.classes import ClassRegistry
+from portal.classes import ClassRegistry, allowed_learners
 from portal.config import Settings
 from portal.discord_roster import DiscordRoster
 from portal.importer import parse_upload
@@ -34,7 +34,6 @@ class ClassTests(unittest.TestCase):
 
     def test_40_simultaneous_requests_reserve_exactly_30_places(self):
         self.registry.create_class("Class A", "Students A", 30, "A30")
-        allow(self.registry, "Class A", "Students A", [f"User {i}" for i in range(40)])
         def claim(index):
             try:
                 return self.registry.reserve("A30", str(index), "900", f"User {index}")
@@ -50,7 +49,6 @@ class ClassTests(unittest.TestCase):
 
     def test_repeat_member_does_not_consume_more_and_failure_frees_slot(self):
         self.registry.create_class("A", "Students", 1, "AA")
-        allow(self.registry, "A", "Students", ["Student One", "Student Two"])
         claim = self.registry.reserve("AA", "1", "900", "Student One")
         with self.assertRaises(RegistryError):
             self.registry.reserve("AA", "1", "900", "Student One")
@@ -66,7 +64,6 @@ class ClassTests(unittest.TestCase):
     def test_departure_frees_slot_only_for_affected_role_and_class(self):
         for code, role in [("AA", "900"), ("BB", "901")]:
             self.registry.create_class(code, role, 1, code)
-            allow(self.registry, code, role, ["Student One"])
             claim = self.registry.reserve(code, "1", role, "Student One")
             self.registry.finish_claim(claim["id"], claim["claim_id"])
         self.registry.mark_departed("1", ["900"])
@@ -76,23 +73,44 @@ class ClassTests(unittest.TestCase):
         self.registry.mark_departed("1")
         self.assertTrue(all(row["remaining"] == 1 for row in self.registry.class_list()))
 
-    def test_shared_code_requires_allowed_name_and_prevents_name_reuse(self):
-        self.registry.create_class("A", "Students", 30, "AA")
+    def test_self_entered_names_need_no_roster_and_can_be_shared(self):
+        course = self.registry.create_class("A", "Students", 30, "AA")
+        first = self.registry.reserve("AA", "1", "900", "  สมชาย   ใจดี ")
+        self.registry.finish_claim(first["id"], first["claim_id"])
+        second = self.registry.reserve("AA", "2", "900", "สมชาย ใจดี")
+        self.registry.finish_claim(second["id"], second["claim_id"])
+        rows = self.registry.class_members(course["id"])
+        self.assertEqual({row["discord_id"] for row in rows}, {"1", "2"})
+        self.assertTrue(all(row["full_name"] == "สมชาย ใจดี" for row in rows))
+        repeated = self.registry.reserve("AA", "1", "900", "Different Name")
+        self.assertTrue(repeated["already_verified"])
+        self.assertEqual(repeated["full_name"], "สมชาย ใจดี")
+        self.assertEqual(self.registry.class_list()[0]["used"], 2)
+
+    def test_old_roster_bindings_do_not_restrict_self_entered_names(self):
+        course = self.registry.create_class("A", "Students", 30, "AA")
+        allow(self.registry, "A", "Students", ["Old Name"])
+        with self.registry.transaction() as connection:
+            connection.execute(allowed_learners.update().values(discord_id="1"))
+        first = self.registry.reserve("AA", "1", "900", "New Name")
+        second = self.registry.reserve("AA", "2", "900", "Old Name")
+        self.assertEqual(first["full_name"], "New Name")
+        self.assertEqual(second["full_name"], "Old Name")
+        with self.registry.engine.connect() as connection:
+            old = connection.execute(select(allowed_learners)).mappings().one()
+        self.assertEqual((old["full_name"], old["discord_id"]), ("Old Name", "1"))
+        self.assertEqual(len(self.registry.class_members(course["id"])), 2)
+
+    def test_invalid_names_or_codes_do_not_store_members_or_consume_quota(self):
+        course = self.registry.create_class("A", "Students", 30, "AA")
+        for name in ["", " \t\n ", "ก" * 101]:
+            with self.subTest(name=name), self.assertRaises(RegistryError):
+                self.registry.reserve("AA", "1", "900", name)
         with self.assertRaises(RegistryError):
-            self.registry.reserve("AA", "1", "900", "Student One")
-        allow(self.registry, "A", "Students", ["Student One", "Student Two"])
-        with self.assertRaises(RegistryError):
-            self.registry.reserve("AA", "1", "900", "Outsider")
-        claim = self.registry.reserve("AA", "1", "900", "  STUDENT   One ")
-        with self.assertRaises(RegistryError):
-            self.registry.reserve("AA", "2", "900", "Student One")
-        with self.assertRaises(RegistryError):
-            self.registry.reserve("AA", "1", "900", "Student Two")
-        self.registry.finish_claim(claim["id"], claim["claim_id"])
-        self.registry.mark_departed("1")
-        with self.assertRaises(RegistryError):
-            self.registry.reserve("AA", "2", "900", "Student One")
+            self.registry.reserve("INVALID", "1", "900", "Student")
+        self.assertEqual(self.registry.class_members(course["id"]), [])
         self.assertEqual(self.registry.class_list()[0]["remaining"], 30)
+        self.assertEqual(len(self.registry.reserve("AA", "1", "900", "ก" * 100)["full_name"]), 100)
 
     def test_duplicate_names_are_rejected_before_import(self):
         rows = [dict(student_id=str(i),full_name=name,course="A",role_name="Students",row=i+2)
@@ -133,11 +151,16 @@ class ClassTests(unittest.TestCase):
             response = client.post("/api/classes", json=body, headers=headers)
             self.assertEqual(response.status_code, 200)
             self.assertEqual(client.post("/api/classes", json=body, headers=headers).status_code, 409)
-            allow(self.registry, "A", "Students", ["Student"])
             claim = self.registry.reserve("A30", "2", "900", "Student")
             self.registry.finish_claim(claim["id"], claim["claim_id"])
             data = client.get('/api/classes/'+response.json()["id"]+'/members').json()
             self.assertEqual(data["members"][0]["status"], "verified")
+            self.assertEqual(data["members"][0]["full_name"], "Student")
+            self.assertEqual(data["members"][0]["discord_id"], "2")
+            self.assertIsNotNone(data["members"][0]["verified_at"])
+            client.cookies.clear()
+            self.assertEqual(client.get('/api/classes/'+response.json()["id"]+'/members').status_code, 401)
+            client.cookies.set("cspace_session", token)
             self.assertIn("A30", client.get("/api/export.csv").text)
             self.assertEqual(client.get("/api/roster").status_code, 404)
             self.assertIn("classes.js", client.get("/").text)
@@ -149,7 +172,6 @@ class ClassDiscordTests(unittest.IsolatedAsyncioTestCase):
             registry = ClassRegistry(f"sqlite:///{(Path(directory) / 'test.db').as_posix()}")
             registry.initialize()
             registry.create_class("A", "Students", 1, "A30")
-            allow(registry, "A", "Students", ["Student"])
             class Role:
                 id = 900
                 name = "Students"

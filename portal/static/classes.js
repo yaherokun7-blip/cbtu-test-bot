@@ -16,7 +16,7 @@ async function refresh() {
     $('error').hidden = true;
     $('total').textContent = classes.length;
     ['used','processing','remaining'].forEach(key => $(key).textContent = classes.reduce((sum,row) => sum + row[key],0));
-    $('classes').innerHTML = classes.length ? classes.map(row => `<tr><td><div class="class-name">${esc(row.course)}</div><div class="class-role">${esc(row.role_name)} · รายชื่อ ${row.allowed_count} คน${row.allowed_count ? "" : " (รออัปโหลด)"}</div></td><td><span class="code-text">${esc(row.access_code)}</span></td><td>${row.used} / ${row.capacity}</td><td>${row.processing}</td><td>${row.remaining}</td><td><button class="button secondary" data-members="${esc(row.id)}">ดูสมาชิก</button></td></tr>`).join('') : '<tr><td colspan="6" class="empty-state"><strong>สร้างคลาสแรกของคุณ</strong>กำหนดโค้ด ยศ และจำนวนคน เช่น 30 คนต่อคลาส</td></tr>';
+    $('classes').innerHTML = classes.length ? classes.map(row => `<tr><td><div class="class-name">${esc(row.course)}</div><div class="class-role">${esc(row.role_name)} · ผู้ใช้กรอกชื่อเอง</div></td><td><span class="code-text">${esc(row.access_code)}</span></td><td>${row.used} / ${row.capacity}</td><td>${row.processing}</td><td>${row.remaining}</td><td><button class="button secondary" data-members="${esc(row.id)}">ดูสมาชิก</button></td></tr>`).join('') : '<tr><td colspan="6" class="empty-state"><strong>สร้างคลาสแรกของคุณ</strong>กำหนดโค้ด ยศ และจำนวนคน เช่น 30 คนต่อคลาส</td></tr>';
   } catch(error) {$('error').textContent = error.message; $('error').hidden=false;}
 }
 $('new-class').onclick = () => {$('create-error').textContent=''; $('create-dialog').showModal();};
